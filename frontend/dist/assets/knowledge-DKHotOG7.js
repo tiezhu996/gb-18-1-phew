@@ -1,0 +1,1 @@
+import{B as t}from"./index-uM9K4shu.js";const g=()=>t.get("/knowledge/subjects"),n=e=>t.get(`/knowledge/tree/${e}`),o=(e,r)=>t.get(`/knowledge/search/${e}`,{params:{keyword:r}});export{n as a,g,o as s};

@@ -15,6 +15,26 @@
         </div>
       </div>
 
+      <div
+        v-if="recentSession"
+        class="resume-card card"
+        @click="resumePractice"
+      >
+        <div class="resume-icon">⏳</div>
+        <div class="resume-info">
+          <div class="resume-title">
+            继续{{ recentSessionModeName }}
+            <span class="resume-tag">未完成</span>
+          </div>
+          <div class="resume-meta">
+            {{ recentSession.subject_name || '题库练习' }} ·
+            已答 {{ recentSession.answered }}/{{ recentSession.total }} 题 ·
+            正确率 {{ recentSessionAccuracy }}%
+          </div>
+        </div>
+        <van-button type="primary" size="small" round>继续</van-button>
+      </div>
+
       <div class="quick-actions card">
         <div class="section-title">快速开始</div>
         <div class="action-grid">
@@ -130,21 +150,38 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { showToast, showConfirmDialog, showLoadingToast, closeToast } from 'vant'
 import { useUserStore } from '@/stores/user'
 import { getSubjects } from '@/api/knowledge'
 import { getLearningOverview } from '@/api/analysis'
 import { getErrorStats } from '@/api/errors'
+import { getRecentSession } from '@/api/practice'
 import { startExam } from '@/api/exam'
-import type { Subject } from '@/types'
+import type { Subject, RecentSession } from '@/types'
 
 const router = useRouter()
 const userStore = useUserStore()
 
 const activeTab = ref(0)
 const subjects = ref<Subject[]>([])
+const recentSession = ref<RecentSession | null>(null)
+
+const recentSessionModeName = computed(() => {
+  const modeMap: Record<string, string> = {
+    sequential: '顺序练习',
+    random: '随机练习',
+    error_practice: '错题重练'
+  }
+  return modeMap[recentSession.value?.mode || ''] || '练习'
+})
+
+const recentSessionAccuracy = computed(() => {
+  const session = recentSession.value
+  if (!session || session.answered === 0) return 0
+  return Math.round((session.correct_count / session.answered) * 1000) / 10
+})
 
 const overview = reactive({
   total_practiced: 0,
@@ -160,10 +197,11 @@ const fetchData = async () => {
   try {
     showLoadingToast({ message: '加载中...', duration: 0 })
 
-    const [subjectsData, overviewData, errorStatsData] = await Promise.all([
+    const [subjectsData, overviewData, errorStatsData, recent] = await Promise.all([
       getSubjects(),
       getLearningOverview(),
-      getErrorStats()
+      getErrorStats(),
+      getRecentSession().catch(() => null)
     ])
 
     subjects.value = subjectsData
@@ -171,6 +209,7 @@ const fetchData = async () => {
     overview.accuracy = overviewData.accuracy
     overview.total_exams = overviewData.total_exams
     errorStats.total_errors = errorStatsData.total_errors
+    recentSession.value = recent
   } catch (error) {
     console.error(error)
   } finally {
@@ -192,6 +231,19 @@ const goToErrors = () => {
 
 const goToAnalysis = () => {
   router.push('/analysis')
+}
+
+const resumePractice = () => {
+  const session = recentSession.value
+  if (!session) return
+  router.push({
+    path: `/practice/${session.mode || 'sequential'}`,
+    query: {
+      sessionId: session.id,
+      subjectId: session.subject_id,
+      knowledgeIds: session.knowledge_ids?.[0] || ''
+    }
+  })
 }
 
 const startQuickExam = async () => {
@@ -258,6 +310,55 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   font-size: 24px;
+}
+
+.resume-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-left: 4px solid #f59e0b;
+  cursor: pointer;
+}
+
+.resume-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: #fffbeb;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  flex-shrink: 0;
+}
+
+.resume-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.resume-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1a1a2e;
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.resume-tag {
+  font-size: 11px;
+  font-weight: 500;
+  color: #b45309;
+  background: #fef3c7;
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+
+.resume-meta {
+  font-size: 12px;
+  color: #94a3b8;
 }
 
 .action-grid {

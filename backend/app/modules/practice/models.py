@@ -30,6 +30,7 @@ class PracticeSession(BaseModel):
     answers: dict
     total: int
     correct_count: int
+    is_finished: bool = False
     created_at: datetime
     updated_at: datetime
 

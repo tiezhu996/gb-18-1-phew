@@ -113,7 +113,8 @@ class QuestionService:
     async def check_answer(
         question_id: str,
         user_answer: Any,
-        user_id: str
+        user_id: str,
+        update_stats: bool = True
     ) -> AnswerResult:
         db = get_db()
         question = await QuestionService.get_question_by_id(question_id)
@@ -123,11 +124,12 @@ class QuestionService:
         correct_answer = question["correct_answer"]
         is_correct = QuestionService.compare_answers(question["type"], user_answer, correct_answer)
 
-        update_data = {"$inc": {"stats.answered": 1}}
-        if is_correct:
-            update_data["$inc"]["stats.correct"] = 1
-
-        await db.questions.update_one({"_id": ObjectId(question_id)}, update_data)
+        # 同一会话内重复提交只更新答案，不重复累计题目统计
+        if update_stats:
+            update_data = {"$inc": {"stats.answered": 1}}
+            if is_correct:
+                update_data["$inc"]["stats.correct"] = 1
+            await db.questions.update_one({"_id": ObjectId(question_id)}, update_data)
 
         return AnswerResult(
             question_id=question_id,

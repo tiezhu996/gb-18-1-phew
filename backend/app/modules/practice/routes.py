@@ -22,14 +22,7 @@ async def start_practice(
         )
 
         question = await PracticeService.get_current_question(session)
-        question_response = {
-            "id": str(question["_id"]),
-            "type": question["type"],
-            "content": question["content"],
-            "options": question.get("options"),
-            "difficulty": question["difficulty"],
-            "knowledge_ids": question.get("knowledge_ids", [])
-        } if question else None
+        question_response = PracticeService._build_question_payload(question) if question else None
 
         return {
             "session_id": session["id"],
@@ -37,6 +30,7 @@ async def start_practice(
             "progress": {
                 "current": 0,
                 "total": session["total"],
+                "answered": 0,
                 "correct": 0,
                 "accuracy": 0
             }
@@ -62,6 +56,25 @@ async def submit_answer(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.get("/recent")
+async def get_recent_session(
+    user: dict = Depends(get_current_user)
+):
+    """首页展示最近一次未完成的练习会话，已完成的不再返回。"""
+    return await PracticeService.get_resumable_session(str(user["_id"]))
+
+
+@router.get("/resume/{session_id}")
+async def resume_practice(
+    session_id: str,
+    user: dict = Depends(get_current_user)
+):
+    result = await PracticeService.resume_session(session_id, str(user["_id"]))
+    if not result:
+        raise HTTPException(status_code=404, detail="练习会话不存在")
+    return result
+
+
 @router.get("/navigate/{session_id}/{direction}")
 async def navigate(
     session_id: str,
@@ -69,21 +82,12 @@ async def navigate(
     user: dict = Depends(get_current_user)
 ):
     try:
-        question = await PracticeService.navigate_question(
+        result = await PracticeService.navigate_question(
             session_id=session_id,
             user_id=str(user["_id"]),
             direction=direction
         )
-        if question:
-            return {
-                "id": str(question["_id"]),
-                "type": question["type"],
-                "content": question["content"],
-                "options": question.get("options"),
-                "difficulty": question["difficulty"],
-                "knowledge_ids": question.get("knowledge_ids", [])
-            }
-        return None
+        return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -112,16 +116,10 @@ async def get_session(
         raise HTTPException(status_code=404, detail="练习会话不存在")
 
     question = await PracticeService.get_current_question(session)
-    question_response = {
-        "id": str(question["_id"]),
-        "type": question["type"],
-        "content": question["content"],
-        "options": question.get("options"),
-        "difficulty": question["difficulty"],
-        "knowledge_ids": question.get("knowledge_ids", [])
-    } if question else None
+    answer = session.get("answers", {}).get(str(question["_id"])) if question else None
+    question_response = PracticeService._build_question_payload(question, answer) if question else None
 
     return {
-        "session": session,
+        "session": PracticeService._serialize_session(session),
         "current_question": question_response
     }
