@@ -53,6 +53,20 @@ export interface Question {
   tags: string[]
 }
 
+export interface PracticeAnswer {
+  user_answer: any
+  is_correct: boolean
+  submitted_at: string
+}
+
+export interface PracticeProgress {
+  current: number
+  answered: number
+  total: number
+  correct: number
+  accuracy: number
+}
+
 export interface PracticeSession {
   id: string
   mode: string
@@ -60,22 +74,42 @@ export interface PracticeSession {
   knowledge_ids?: string[]
   question_ids: string[]
   current_index: number
-  answers: Record<string, any>
+  answers: Record<string, PracticeAnswer>
   total: number
   correct_count: number
+  is_finished?: boolean
+  created_at?: string
+  updated_at?: string
+}
+
+export interface UnfinishedSession {
+  id: string
+  mode: string
+  subject_id?: string
+  subject_name?: string
+  subject_icon?: string
+  total: number
+  answered: number
+  correct_count: number
+  updated_at?: string
+  created_at?: string
+}
+
+export interface PracticeCurrentQuestion extends Question {
+  index: number
+  saved_answer?: PracticeAnswer
+  user_answer?: any
+  is_correct?: boolean
 }
 
 export interface PracticeResult {
   question_id: string
+  user_answer: any
   is_correct: boolean
   correct_answer: any
   explanation?: string
-  progress: {
-    current: number
-    total: number
-    correct: number
-    accuracy: number
-  }
+  is_new_answer: boolean
+  progress: PracticeProgress
   is_finished: boolean
 }
 

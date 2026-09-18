@@ -15,6 +15,44 @@
         </div>
       </div>
 
+      <div v-if="unfinishedSessions.length > 0" class="resume-card card">
+        <div class="section-title">
+          继续练习
+          <span class="section-subtitle">上次未完成，回来继续吧</span>
+        </div>
+        <div class="resume-list">
+          <div
+            v-for="item in unfinishedSessions"
+            :key="item.id"
+            class="resume-item"
+            @click="resumeSession(item)"
+          >
+            <div class="resume-icon">
+              {{ item.subject_icon || modeIcon(item.mode) }}
+            </div>
+            <div class="resume-info">
+              <div class="resume-name">
+                {{ item.subject_name || modeName(item.mode) }}
+                <span class="resume-mode">{{ modeName(item.mode) }}</span>
+              </div>
+              <div class="resume-meta">
+                已练 {{ item.answered }}/{{ item.total }} 题
+                <template v-if="item.answered > 0">
+                  · 正确率 {{ Math.round(item.correct_count / item.answered * 100) }}%
+                </template>
+              </div>
+              <div class="resume-progress">
+                <div
+                  class="resume-progress-fill"
+                  :style="{ width: (item.total ? item.answered / item.total * 100 : 0) + '%' }"
+                ></div>
+              </div>
+            </div>
+            <van-button type="primary" size="small" round>继续</van-button>
+          </div>
+        </div>
+      </div>
+
       <div class="quick-actions card">
         <div class="section-title">快速开始</div>
         <div class="action-grid">
@@ -137,14 +175,31 @@ import { useUserStore } from '@/stores/user'
 import { getSubjects } from '@/api/knowledge'
 import { getLearningOverview } from '@/api/analysis'
 import { getErrorStats } from '@/api/errors'
+import { getUnfinishedSessions } from '@/api/practice'
 import { startExam } from '@/api/exam'
-import type { Subject } from '@/types'
+import type { Subject, UnfinishedSession } from '@/types'
 
 const router = useRouter()
 const userStore = useUserStore()
 
 const activeTab = ref(0)
 const subjects = ref<Subject[]>([])
+const unfinishedSessions = ref<UnfinishedSession[]>([])
+
+const MODE_NAME_MAP: Record<string, string> = {
+  sequential: '顺序练习',
+  random: '随机练习',
+  error_practice: '错题重练'
+}
+
+const MODE_ICON_MAP: Record<string, string> = {
+  sequential: '📖',
+  random: '🎲',
+  error_practice: '❌'
+}
+
+const modeName = (mode: string) => MODE_NAME_MAP[mode] || '练习'
+const modeIcon = (mode: string) => MODE_ICON_MAP[mode] || '📝'
 
 const overview = reactive({
   total_practiced: 0,
@@ -160,10 +215,14 @@ const fetchData = async () => {
   try {
     showLoadingToast({ message: '加载中...', duration: 0 })
 
-    const [subjectsData, overviewData, errorStatsData] = await Promise.all([
+    const [subjectsData, overviewData, errorStatsData, unfinishedData] = await Promise.all([
       getSubjects(),
       getLearningOverview(),
-      getErrorStats()
+      getErrorStats(),
+      getUnfinishedSessions().catch((error) => {
+        console.error('获取未完成会话失败', error)
+        return { items: [] }
+      })
     ])
 
     subjects.value = subjectsData
@@ -171,6 +230,7 @@ const fetchData = async () => {
     overview.accuracy = overviewData.accuracy
     overview.total_exams = overviewData.total_exams
     errorStats.total_errors = errorStatsData.total_errors
+    unfinishedSessions.value = unfinishedData.items || []
   } catch (error) {
     console.error(error)
   } finally {
@@ -192,6 +252,10 @@ const goToErrors = () => {
 
 const goToAnalysis = () => {
   router.push('/analysis')
+}
+
+const resumeSession = (item: UnfinishedSession) => {
+  router.push(`/practice/${item.mode}?sessionId=${item.id}`)
 }
 
 const startQuickExam = async () => {
@@ -300,6 +364,83 @@ onMounted(() => {
   color: #3b82f6;
   font-weight: normal;
   margin-left: auto;
+}
+
+.section-subtitle {
+  font-size: 12px;
+  color: #94a3b8;
+  font-weight: normal;
+  margin-left: 8px;
+}
+
+.resume-list {
+  margin-top: 8px;
+}
+
+.resume-item {
+  display: flex;
+  align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px solid #f1f5f9;
+  gap: 12px;
+}
+
+.resume-item:last-child {
+  border-bottom: none;
+}
+
+.resume-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: #eff6ff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.resume-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.resume-name {
+  font-size: 15px;
+  font-weight: 500;
+  color: #1a1a2e;
+  margin-bottom: 2px;
+}
+
+.resume-mode {
+  font-size: 11px;
+  color: #3b82f6;
+  background: #eff6ff;
+  border-radius: 4px;
+  padding: 1px 6px;
+  margin-left: 6px;
+  font-weight: normal;
+}
+
+.resume-meta {
+  font-size: 12px;
+  color: #94a3b8;
+  margin-bottom: 6px;
+}
+
+.resume-progress {
+  height: 4px;
+  background: #f1f5f9;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.resume-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6, #60a5fa);
+  border-radius: 2px;
+  transition: width 0.3s;
 }
 
 .subject-list {

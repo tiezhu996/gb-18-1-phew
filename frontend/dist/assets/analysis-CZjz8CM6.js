@@ -1,0 +1,1 @@
+import{B as e}from"./index-CycXevKq.js";const a=()=>e.get("/analysis/overview"),s=(r=7)=>e.get(`/analysis/accuracy-trend?days=${r}`),n=r=>e.get("/analysis/knowledge-mastery");export{s as a,n as b,a as g};

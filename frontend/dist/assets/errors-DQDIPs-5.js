@@ -1,0 +1,1 @@
+import{B as t}from"./index-CycXevKq.js";const e=r=>t.get("/errors/list",{params:r}),a=r=>t.post(`/errors/mark-mastered/${r}`),o=r=>t.post(`/errors/unmark-mastered/${r}`),n=()=>t.get("/errors/stats");export{e as a,n as g,a as m,o as u};

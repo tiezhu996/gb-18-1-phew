@@ -22,24 +22,14 @@ async def start_practice(
         )
 
         question = await PracticeService.get_current_question(session)
-        question_response = {
-            "id": str(question["_id"]),
-            "type": question["type"],
-            "content": question["content"],
-            "options": question.get("options"),
-            "difficulty": question["difficulty"],
-            "knowledge_ids": question.get("knowledge_ids", [])
-        } if question else None
+        question_response = PracticeService._question_payload(
+            question, 0
+        ) if question else None
 
         return {
             "session_id": session["id"],
             "current_question": question_response,
-            "progress": {
-                "current": 0,
-                "total": session["total"],
-                "correct": 0,
-                "accuracy": 0
-            }
+            "progress": PracticeService._build_progress(session)
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -51,13 +41,12 @@ async def submit_answer(
     user: dict = Depends(get_current_user)
 ):
     try:
-        result = await PracticeService.submit_answer(
+        return await PracticeService.submit_answer(
             session_id=submit_data.session_id,
             user_id=str(user["_id"]),
             question_id=submit_data.question_id,
             user_answer=submit_data.user_answer
         )
-        return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -69,21 +58,11 @@ async def navigate(
     user: dict = Depends(get_current_user)
 ):
     try:
-        question = await PracticeService.navigate_question(
+        return await PracticeService.navigate_question(
             session_id=session_id,
             user_id=str(user["_id"]),
             direction=direction
         )
-        if question:
-            return {
-                "id": str(question["_id"]),
-                "type": question["type"],
-                "content": question["content"],
-                "options": question.get("options"),
-                "difficulty": question["difficulty"],
-                "knowledge_ids": question.get("knowledge_ids", [])
-            }
-        return None
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -102,6 +81,37 @@ async def get_progress(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.get("/unfinished")
+async def get_unfinished_sessions(user: dict = Depends(get_current_user)):
+    """首页展示最近未完成的练习会话。"""
+    return {
+        "items": await PracticeService.get_unfinished_sessions(str(user["_id"]))
+    }
+
+
+@router.get("/resume/{session_id}")
+async def resume_practice(
+    session_id: str,
+    user: dict = Depends(get_current_user)
+):
+    """断点续练：回到退出时尚未提交的题目，保留此前作答。"""
+    session = await PracticeService.resume_session(session_id, str(user["_id"]))
+    if not session:
+        raise HTTPException(status_code=404, detail="练习会话不存在")
+
+    question = await PracticeService.get_current_question(session)
+    current_index = session.get("current_index", 0)
+    question_response = PracticeService._question_payload(
+        question, current_index
+    ) if question else None
+
+    return {
+        "session": PracticeService._serialize(session),
+        "current_question": question_response,
+        "progress": PracticeService._build_progress(session)
+    }
+
+
 @router.get("/session/{session_id}")
 async def get_session(
     session_id: str,
@@ -112,16 +122,16 @@ async def get_session(
         raise HTTPException(status_code=404, detail="练习会话不存在")
 
     question = await PracticeService.get_current_question(session)
-    question_response = {
-        "id": str(question["_id"]),
-        "type": question["type"],
-        "content": question["content"],
-        "options": question.get("options"),
-        "difficulty": question["difficulty"],
-        "knowledge_ids": question.get("knowledge_ids", [])
-    } if question else None
+    current_index = session.get("current_index", 0)
+    saved_answer = None
+    if question:
+        saved_answer = session.get("answers", {}).get(str(question["_id"]))
+    question_response = PracticeService._question_payload(
+        question, current_index, saved_answer
+    ) if question else None
 
     return {
-        "session": session,
-        "current_question": question_response
+        "session": PracticeService._serialize(session),
+        "current_question": question_response,
+        "progress": PracticeService._build_progress(session)
     }

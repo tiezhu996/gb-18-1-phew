@@ -6,7 +6,7 @@
       @click-left="handleBack"
     >
       <template #right>
-        <span class="nav-progress">{{ progress.current + 1 }} / {{ progress.total }}</span>
+        <span class="nav-progress">{{ navIndexText }} / {{ progress.total }}</span>
       </template>
     </van-nav-bar>
 
@@ -15,6 +15,7 @@
         <div class="progress-fill" :style="{ width: progressPercent + '%' }"></div>
       </div>
       <div class="progress-stats">
+        <span>已作答 {{ progress.answered }}/{{ progress.total }}</span>
         <span>正确率 {{ progress.accuracy }}%</span>
         <span>已对 {{ progress.correct }} 题</span>
       </div>
@@ -26,6 +27,7 @@
         <span class="difficulty-tag" :class="'difficulty-' + currentQuestion.difficulty">
           {{ difficultyLabel }}
         </span>
+        <span v-if="alreadyAnswered" class="answered-tag">已作答</span>
       </div>
 
       <div class="question-content">
@@ -75,7 +77,9 @@
           <div v-else class="fill-result">
             <div class="result-row">
               <span class="result-label">你的答案：</span>
-              <span class="result-value wrong">{{ fillAnswer || '未作答' }}</span>
+              <span class="result-value" :class="result?.is_correct ? 'correct' : 'wrong'">
+                {{ displayUserAnswer || '未作答' }}
+              </span>
             </div>
             <div class="result-row">
               <span class="result-label">正确答案：</span>
@@ -137,12 +141,22 @@
       </van-button>
 
       <van-button
+        v-if="showResult"
+        plain
+        type="warning"
+        size="large"
+        @click="reAnswer"
+      >
+        重新作答
+      </van-button>
+
+      <van-button
         type="primary"
         size="large"
         :loading="submitting"
         @click="handleSubmit"
       >
-        {{ showResult ? '下一题' : '提交答案' }}
+        {{ showResult ? '下一题' : (alreadyAnswered ? '更新答案' : '提交答案') }}
       </van-button>
     </div>
   </div>
@@ -152,8 +166,17 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { showConfirmDialog, showLoadingToast, closeToast } from 'vant'
-import { startPractice, submitAnswer, navigateQuestion } from '@/api/practice'
-import type { Question, PracticeResult } from '@/types'
+import {
+  startPractice,
+  submitAnswer,
+  navigateQuestion,
+  resumePractice
+} from '@/api/practice'
+import type {
+  PracticeCurrentQuestion,
+  PracticeResult,
+  PracticeAnswer
+} from '@/types'
 
 const route = useRoute()
 const router = useRouter()
@@ -162,7 +185,7 @@ const mode = computed(() => route.params.mode as string)
 const query = computed(() => route.query)
 
 const sessionId = ref('')
-const currentQuestion = ref<Question | null>(null)
+const currentQuestion = ref<PracticeCurrentQuestion | null>(null)
 const selectedAnswer = ref<any>(null)
 const selectedAnswers = ref<string[]>([])
 const fillAnswer = ref('')
@@ -170,9 +193,11 @@ const showResult = ref(false)
 const result = ref<PracticeResult | null>(null)
 const isFinished = ref(false)
 const submitting = ref(false)
+const alreadyAnswered = ref(false)
 
 const progress = reactive({
   current: 0,
+  answered: 0,
   total: 0,
   correct: 0,
   accuracy: 0
@@ -188,7 +213,13 @@ const modeName = computed(() => {
 })
 
 const progressPercent = computed(() => {
-  return Math.round(((progress.current + 1) / progress.total) * 100)
+  if (!progress.total) return 0
+  return Math.round(progress.answered / progress.total * 100)
+})
+
+const navIndexText = computed(() => {
+  if (isFinished.value) return progress.total
+  return Math.min(progress.current + 1, progress.total || 1)
 })
 
 const questionTypeLabel = computed(() => {
@@ -219,13 +250,42 @@ const isOptionSelected = (key: string) => {
 
 const getOptionClass = (key: string) => {
   const classes: string[] = []
-  if (key === result.value?.correct_answer) {
-    classes.push('correct')
-  } else if (isOptionSelected(key) && !result.value?.is_correct) {
-    classes.push('wrong')
+  const correctAnswer = result.value?.correct_answer
+  if (currentQuestion.value?.type === 'multiple_choice') {
+    const correctList: string[] = Array.isArray(correctAnswer) ? correctAnswer : []
+    const userList: string[] = Array.isArray(result.value?.user_answer)
+      ? result.value.user_answer
+      : (result.value?.user_answer ? [result.value.user_answer] : [])
+    if (correctList.includes(key)) {
+      classes.push('correct')
+    } else if (userList.includes(key) && !result.value?.is_correct) {
+      classes.push('wrong')
+    }
+  } else {
+    if (key === correctAnswer) {
+      classes.push('correct')
+    } else if (isOptionSelectedByResult(key) && !result.value?.is_correct) {
+      classes.push('wrong')
+    }
   }
   return classes
 }
+
+const isOptionSelectedByResult = (key: string) => {
+  const userAnswer = result.value?.user_answer
+  if (Array.isArray(userAnswer)) {
+    return userAnswer.includes(key)
+  }
+  return userAnswer === key
+}
+
+const displayUserAnswer = computed(() => {
+  const userAnswer = result.value?.user_answer
+  if (Array.isArray(userAnswer)) {
+    return userAnswer.join('、')
+  }
+  return userAnswer
+})
 
 const selectOption = (key: string) => {
   if (showResult.value) return
@@ -252,56 +312,127 @@ const getAnswerToSubmit = () => {
   return selectedAnswer.value
 }
 
+const hasAnswer = () => {
+  const answer = getAnswerToSubmit()
+  if (Array.isArray(answer)) {
+    return answer.length > 0
+  }
+  return answer !== null && answer !== undefined && answer !== ''
+}
+
+const applyProgress = (p: {
+  current: number
+  answered?: number
+  total: number
+  correct: number
+  accuracy: number
+}) => {
+  progress.current = p.current
+  progress.answered = p.answered ?? 0
+  progress.total = p.total
+  progress.correct = p.correct
+  progress.accuracy = p.accuracy
+}
+
+const loadQuestion = (question: PracticeCurrentQuestion, answeredCount?: number) => {
+  currentQuestion.value = question
+  progress.current = question.index
+  if (typeof answeredCount === 'number') {
+    progress.answered = answeredCount
+  }
+
+  if (question.saved_answer) {
+    restoreSavedAnswer(question.saved_answer, question.correct_answer, question.is_correct)
+  } else {
+    resetAnswerState()
+  }
+}
+
+const restoreSavedAnswer = (
+  saved: PracticeAnswer,
+  correctAnswer?: any,
+  savedIsCorrect?: boolean
+) => {
+  const userAnswer = saved.user_answer
+  if (currentQuestion.value?.type === 'multiple_choice') {
+    selectedAnswers.value = Array.isArray(userAnswer) ? [...userAnswer] : []
+    selectedAnswer.value = null
+  } else if (currentQuestion.value?.type === 'fill_blank') {
+    fillAnswer.value = userAnswer ?? ''
+    selectedAnswer.value = null
+  } else {
+    selectedAnswer.value = userAnswer
+    selectedAnswers.value = []
+  }
+
+  alreadyAnswered.value = true
+  showResult.value = true
+  result.value = {
+    question_id: currentQuestion.value!.id,
+    user_answer: userAnswer,
+    is_correct: savedIsCorrect ?? saved.is_correct,
+    correct_answer: correctAnswer,
+    explanation: currentQuestion.value?.explanation,
+    is_new_answer: false,
+    progress: { ...progress },
+    is_finished: false
+  }
+}
+
+const resetAnswerState = () => {
+  showResult.value = false
+  result.value = null
+  alreadyAnswered.value = false
+  selectedAnswer.value = null
+  selectedAnswers.value = []
+  fillAnswer.value = ''
+}
+
 const handleSubmit = async () => {
   if (!showResult.value) {
-    if (!getAnswerToSubmit()) {
+    if (!hasAnswer()) {
       return
     }
 
     submitting.value = true
     try {
       const answer = getAnswerToSubmit()
-      result.value = await submitAnswer(sessionId.value, currentQuestion.value!.id, answer)
+      const submitResult = await submitAnswer(
+        sessionId.value,
+        currentQuestion.value!.id,
+        answer
+      )
+      result.value = submitResult
 
-      progress.current = result.value.progress.current
-      progress.correct = result.value.progress.correct
-      progress.accuracy = result.value.progress.accuracy
-
+      applyProgress(submitResult.progress)
       showResult.value = true
-      isFinished.value = result.value.is_finished
+      alreadyAnswered.value = true
+      isFinished.value = submitResult.is_finished
     } catch (error) {
       console.error(error)
     } finally {
       submitting.value = false
     }
   } else {
-    if (isFinished.value) {
-      return
-    }
-
-    showLoadingToast({ message: '加载中...', duration: 0 })
-    try {
-      const question = await navigateQuestion(sessionId.value, 'next')
-      if (question) {
-        currentQuestion.value = question
-        resetAnswerState()
-      }
-    } catch (error) {
-      console.error(error)
-    } finally {
-      closeToast()
-    }
+    await goNext()
   }
 }
 
-const goPrev = async () => {
+const reAnswer = () => {
+  showResult.value = false
+  result.value = null
+}
+
+const goNext = async () => {
+  if (isFinished.value) {
+    return
+  }
+
   showLoadingToast({ message: '加载中...', duration: 0 })
   try {
-    const question = await navigateQuestion(sessionId.value, 'prev')
+    const question = await navigateQuestion(sessionId.value, 'next')
     if (question) {
-      currentQuestion.value = question
-      resetAnswerState()
-      progress.current = Math.max(0, progress.current - 1)
+      loadQuestion(question)
     }
   } catch (error) {
     console.error(error)
@@ -310,18 +441,24 @@ const goPrev = async () => {
   }
 }
 
-const resetAnswerState = () => {
-  showResult.value = false
-  result.value = null
-  selectedAnswer.value = null
-  selectedAnswers.value = []
-  fillAnswer.value = ''
+const goPrev = async () => {
+  showLoadingToast({ message: '加载中...', duration: 0 })
+  try {
+    const question = await navigateQuestion(sessionId.value, 'prev')
+    if (question) {
+      loadQuestion(question)
+    }
+  } catch (error) {
+    console.error(error)
+  } finally {
+    closeToast()
+  }
 }
 
 const handleBack = () => {
   showConfirmDialog({
     title: '确认退出',
-    message: '练习进度已保存，确定要退出吗？'
+    message: '练习进度已保存，下次可从首页继续，确定要退出吗？'
   })
     .then(() => {
       goBackToSubject()
@@ -332,6 +469,9 @@ const handleBack = () => {
 const goBackToSubject = () => {
   if (query.value.subjectId) {
     router.push(`/knowledge/${query.value.subjectId}`)
+  } else if (query.value.sessionId) {
+    // 从首页续练进入：返回首页（未完成会话仍展示在首页）
+    router.push('/')
   } else {
     router.push('/subjects')
   }
@@ -344,6 +484,18 @@ const goHome = () => {
 const initPractice = async () => {
   showLoadingToast({ message: '加载中...', duration: 0 })
   try {
+    // 断点续练：带 sessionId 进入时回到退出时尚未提交的题目，保留此前作答
+    if (query.value.sessionId) {
+      const resumeResult = await resumePractice(query.value.sessionId as string)
+      sessionId.value = resumeResult.session.id
+      applyProgress(resumeResult.progress)
+      isFinished.value = !!resumeResult.session.is_finished
+      if (resumeResult.current_question) {
+        loadQuestion(resumeResult.current_question, resumeResult.progress.answered)
+      }
+      return
+    }
+
     const knowledgeIds = query.value.knowledgeIds ? [query.value.knowledgeIds as string] : undefined
 
     const startResult = await startPractice({
@@ -355,9 +507,13 @@ const initPractice = async () => {
     })
 
     sessionId.value = startResult.session_id
-    currentQuestion.value = startResult.current_question
+    if (startResult.current_question) {
+      loadQuestion(startResult.current_question, 0)
+    }
     progress.total = startResult.progress.total
-    progress.current = startResult.progress.current
+    progress.answered = 0
+    progress.correct = 0
+    progress.accuracy = 0
   } catch (error) {
     console.error(error)
   } finally {
@@ -404,12 +560,22 @@ onMounted(() => {
   display: flex;
   gap: 8px;
   margin-bottom: 16px;
+  align-items: center;
 }
 
 .question-type {
   padding: 4px 10px;
   background: #eff6ff;
   color: #1d4ed8;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.answered-tag {
+  padding: 4px 10px;
+  background: #fef3c7;
+  color: #b45309;
   border-radius: 6px;
   font-size: 12px;
   font-weight: 500;
@@ -597,5 +763,21 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.nav-bottom {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  gap: 10px;
+  padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+  background: white;
+  box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.05);
+}
+
+.nav-bottom .van-button {
+  flex: 1;
 }
 </style>

@@ -1,0 +1,1 @@
+import{B as e}from"./index-CycXevKq.js";const i=t=>e.post("/practice/start",t),a=(t,s,r)=>e.post("/practice/submit",{session_id:t,question_id:s,user_answer:r}),c=(t,s)=>e.get(`/practice/navigate/${t}/${s}`),o=()=>e.get("/practice/unfinished"),u=t=>e.get(`/practice/resume/${t}`);export{a,o as g,c as n,u as r,i as s};

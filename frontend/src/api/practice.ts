@@ -1,5 +1,11 @@
 import request from './request'
-import type { Question, PracticeResult } from '@/types'
+import type {
+  PracticeResult,
+  PracticeSession,
+  PracticeProgress,
+  PracticeCurrentQuestion,
+  UnfinishedSession
+} from '@/types'
 
 export const startPractice = (data: {
   mode: string
@@ -10,8 +16,8 @@ export const startPractice = (data: {
 }) => {
   return request.post<{
     session_id: string
-    current_question: Question
-    progress: { current: number; total: number; correct: number; accuracy: number }
+    current_question: PracticeCurrentQuestion
+    progress: PracticeProgress
   }>('/practice/start', data)
 }
 
@@ -24,15 +30,32 @@ export const submitAnswer = (sessionId: string, questionId: string, userAnswer: 
 }
 
 export const navigateQuestion = (sessionId: string, direction: 'prev' | 'next') => {
-  return request.get<Question>(`/practice/navigate/${sessionId}/${direction}`)
+  return request.get<PracticeCurrentQuestion>(`/practice/navigate/${sessionId}/${direction}`)
 }
 
 export const getSessionProgress = (sessionId: string) => {
-  return request.get<{
-    current: number
-    total: number
-    correct: number
-    accuracy: number
+  return request.get<PracticeProgress & {
+    is_finished: boolean
     answers: Record<string, any>
   }>(`/practice/progress/${sessionId}`)
+}
+
+export const getUnfinishedSessions = () => {
+  return request.get<{ items: UnfinishedSession[] }>('/practice/unfinished')
+}
+
+export const resumePractice = (sessionId: string) => {
+  return request.get<{
+    session: PracticeSession
+    current_question: PracticeCurrentQuestion | null
+    progress: PracticeProgress
+  }>(`/practice/resume/${sessionId}`)
+}
+
+export const getPracticeSession = (sessionId: string) => {
+  return request.get<{
+    session: PracticeSession
+    current_question: PracticeCurrentQuestion | null
+    progress: PracticeProgress
+  }>(`/practice/session/${sessionId}`)
 }
